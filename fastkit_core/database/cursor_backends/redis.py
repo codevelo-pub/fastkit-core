@@ -54,3 +54,15 @@ class RedisCursorBackend(BaseCursorBackend):
         }
         await self._redis.set(key, json.dumps(data, default=str), ex=self._ttl)
         return token
+
+    async def decode(self, token: str) -> dict[str, Any]:
+        key = self._key(token)
+        raw = await self._redis.get(key)
+        if raw is None:
+            raise InvalidCursorError(
+                f"Cursor token not found or expired: {token!r}"
+            )
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise InvalidCursorError(f"Corrupt cursor data for token: {token!r}") from exc
