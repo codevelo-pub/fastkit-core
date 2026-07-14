@@ -27,3 +27,10 @@ class LocalCursorBackend(BaseCursorBackend):
             default=str,
         )
         return base64.urlsafe_b64encode(payload.encode()).decode()
+
+    async def decode(self, token: str) -> dict[str, Any]:
+        try:
+            payload = json.loads(base64.urlsafe_b64decode(token).decode())
+            return payload
+        except Exception as exc:
+            raise InvalidCursorError(f"Invalid cursor token: {token!r}") from exc
