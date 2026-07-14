@@ -13,6 +13,9 @@ from sqlalchemy import and_, or_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Load
 
+import asyncio
+import inspect
+
 from fastkit_core.database.base import Base
 from fastkit_core.database.base_repository import _BaseRepositoryMixin
 from fastkit_core.database.cursor_backends.base import BaseCursorBackend
@@ -72,6 +75,18 @@ class AsyncRepository(_BaseRepositoryMixin, Generic[T]):
         self.model = model
         self.session = session
         self._cursor_backend = cursor_backend or LocalCursorBackend()
+
+    async def _encode_cursor_token(self, field, value, filters, direction) -> str:
+        result = self._cursor_backend.encode(field, value, filters, direction)
+        if inspect.isawaitable(result):
+            return await result
+        return result
+
+    async def _decode_cursor_token(self, token: str) -> dict:
+        result = self._cursor_backend.decode(token)
+        if inspect.isawaitable(result):
+            return await result
+        return result
 
     # ========================================================================
     # CREATE
@@ -699,7 +714,7 @@ class AsyncRepository(_BaseRepositoryMixin, Generic[T]):
     ) -> tuple[list[T], str | None]:
 
         if cursor is not None:
-            cursor_value = self._decode_cursor(cursor)
+            cursor_value = await self._decode_cursor_token(cursor)
             if direction == 'asc':
                 filters[f'{cursor_field}__gt'] = cursor_value
             elif direction == 'desc':
@@ -716,7 +731,12 @@ class AsyncRepository(_BaseRepositoryMixin, Generic[T]):
         next_cursor = None
         if len(items) > per_page:
             items = items[:per_page]
-            next_cursor = self._encode_cursor(getattr(items[-1], cursor_field))
+            next_cursor = await self._encode_cursor_token(
+                field=cursor_field,
+                value=getattr(items[-1], cursor_field),
+                filters=filters,
+                direction=direction,
+            )
 
         return items, next_cursor
 

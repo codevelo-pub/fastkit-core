@@ -99,14 +99,6 @@ class _BaseRepositoryMixin:
 
         return stmt
 
-    def _encode_cursor(self, value: Any) -> str:
-        if isinstance(value, datetime):
-            value = value.isoformat()
-        return base64.urlsafe_b64encode(json.dumps(value).encode()).decode()
-
-    def _decode_cursor(self, cursor: str) -> Any:
-        return json.loads(base64.urlsafe_b64decode(cursor.encode()).decode())
-
     def _has_soft_delete(self) -> bool:
         """Check if model has soft delete support."""
         return hasattr(self.model, 'deleted_at')

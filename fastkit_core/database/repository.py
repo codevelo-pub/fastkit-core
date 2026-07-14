@@ -651,7 +651,7 @@ class Repository(_BaseRepositoryMixin, Generic[T]):
     ) -> tuple[list[T], str | None]:
 
         if cursor is not None:
-            cursor_value = self._decode_cursor(cursor)
+            cursor_value = self._cursor_backend.decode(cursor)
             if direction == 'asc':
                 filters[f'{cursor_field}__gt'] = cursor_value
             elif direction == 'desc':
@@ -668,7 +668,12 @@ class Repository(_BaseRepositoryMixin, Generic[T]):
         next_cursor = None
         if len(items) > per_page:
             items = items[:per_page]
-            next_cursor = self._encode_cursor(getattr(items[-1], cursor_field))
+            next_cursor = self._cursor_backend.encode(
+                field=cursor_field,
+                value=getattr(items[-1], cursor_field),
+                filters=filters,
+                direction=direction,
+            )
 
         return items, next_cursor
 
