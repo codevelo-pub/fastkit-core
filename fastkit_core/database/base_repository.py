@@ -4,10 +4,14 @@ from typing import Sequence, Any
 import base64
 import json
 from datetime import datetime
+from fastkit_core.database.cursor_backends.base import BaseCursorBackend
+from fastkit_core.database.cursor_backends.local import LocalCursorBackend
 
 
 class _BaseRepositoryMixin:
     model: Any
+
+    _cursor_backend: BaseCursorBackend = LocalCursorBackend()
 
     LOOKUP_OPERATORS = {
         'eq': lambda col, val: col == val,
