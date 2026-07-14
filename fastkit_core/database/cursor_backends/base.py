@@ -30,3 +30,19 @@ class BaseCursorBackend(ABC):
             URL-safe token string safe to send to the client.
         """
         pass
+
+    @abstractmethod
+    async def decode(self, token: str) -> dict[str, Any]:
+        """
+        Decode an opaque token back to cursor state.
+
+        Args:
+            token: The token returned by encode().
+
+        Returns:
+            Dict with keys: field, value, filters, direction.
+
+        Raises:
+            InvalidCursorError: If the token is expired, forged, or unknown.
+        """
+        pass
