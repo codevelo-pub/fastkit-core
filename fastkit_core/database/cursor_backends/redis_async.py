@@ -6,7 +6,7 @@ from typing import Any
 from redis.asyncio import Redis
 
 from fastkit_core.database.cursor_backends.base import BaseCursorBackend
-from fastkit_core.http import InvalidCursorError
+from fastkit_core.database.exceptions import InvalidCursorError
 
 CURSOR_KEY_PREFIX = 'fastkit:cursor'
 

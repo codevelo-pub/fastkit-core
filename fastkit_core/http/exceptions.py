@@ -51,17 +51,3 @@ class TooManyRequestsException(FastKitException):
                  headers: dict | None = None
                  ):
         super().__init__(message, headers=headers, status_code=429)
-
-class InvalidCursorError(FastKitException):
-    """
-    Raised when a cursor token cannot be decoded.
-
-    Causes: token expired, token not found in backend, token forged/malformed.
-    In a FastAPI endpoint, catch this and raise NotFoundException or
-    ValidationException depending on your API contract.
-    """
-    def __init__(self,
-                 message: str = "Invalid cursor token",
-                 headers: dict | None = None
-                 ):
-        super().__init__(message, headers=headers, status_code=422)

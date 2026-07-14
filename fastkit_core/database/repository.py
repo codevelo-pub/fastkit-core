@@ -651,7 +651,9 @@ class Repository(_BaseRepositoryMixin, Generic[T]):
     ) -> tuple[list[T], str | None]:
 
         if cursor is not None:
-            cursor_value = self._cursor_backend.decode(cursor)
+            decoded = self._cursor_backend.decode(cursor)
+            cursor_field = decoded['field']
+            cursor_value = decoded['value']
             if direction == 'asc':
                 filters[f'{cursor_field}__gt'] = cursor_value
             elif direction == 'desc':
@@ -671,7 +673,6 @@ class Repository(_BaseRepositoryMixin, Generic[T]):
             next_cursor = self._cursor_backend.encode(
                 field=cursor_field,
                 value=getattr(items[-1], cursor_field),
-                filters=filters,
                 direction=direction,
             )
 

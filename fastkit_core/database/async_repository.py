@@ -76,8 +76,19 @@ class AsyncRepository(_BaseRepositoryMixin, Generic[T]):
         self.session = session
         self._cursor_backend = cursor_backend or LocalCursorBackend()
 
-    async def _encode_cursor_token(self, field, value, filters, direction) -> str:
-        result = self._cursor_backend.encode(field, value, filters, direction)
+    async def _encode_cursor_token(
+            self,
+            field: str,
+            value: Any,
+            direction: str = 'asc',
+            filters: dict | None = None,
+    ) -> str:
+        result = self._cursor_backend.encode(
+            field=field,
+            value=value,
+            filters=filters,
+            direction=direction,
+        )
         if inspect.isawaitable(result):
             return await result
         return result
@@ -714,7 +725,9 @@ class AsyncRepository(_BaseRepositoryMixin, Generic[T]):
     ) -> tuple[list[T], str | None]:
 
         if cursor is not None:
-            cursor_value = await self._decode_cursor_token(cursor)
+            decoded = await self._decode_cursor_token(cursor)
+            cursor_field = decoded['field']
+            cursor_value = decoded['value']
             if direction == 'asc':
                 filters[f'{cursor_field}__gt'] = cursor_value
             elif direction == 'desc':
@@ -734,8 +747,7 @@ class AsyncRepository(_BaseRepositoryMixin, Generic[T]):
             next_cursor = await self._encode_cursor_token(
                 field=cursor_field,
                 value=getattr(items[-1], cursor_field),
-                filters=filters,
-                direction=direction,
+                direction=direction
             )
 
         return items, next_cursor

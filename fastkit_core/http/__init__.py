@@ -14,8 +14,7 @@ from fastkit_core.http.exceptions import (
     ValidationException,
     UnauthorizedException,
     ForbiddenException,
-    TooManyRequestsException,
-    InvalidCursorError
+    TooManyRequestsException
 )
 from fastkit_core.http.middleware import (
     RequestIDMiddleware,
@@ -42,7 +41,6 @@ __all__ = [
     'UnauthorizedException',
     'ForbiddenException',
     'TooManyRequestsException',
-    'InvalidCursorError',
     'RequestIDMiddleware',
     'LocaleMiddleware',
     'register_exception_handlers',
