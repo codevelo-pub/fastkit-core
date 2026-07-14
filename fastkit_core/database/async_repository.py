@@ -15,6 +15,8 @@ from sqlalchemy.orm import Load
 
 from fastkit_core.database.base import Base
 from fastkit_core.database.base_repository import _BaseRepositoryMixin
+from fastkit_core.database.cursor_backends.base import BaseCursorBackend
+from fastkit_core.database.cursor_backends.local import LocalCursorBackend
 
 T = TypeVar('T', bound=Base)
 
@@ -53,16 +55,23 @@ class AsyncRepository(_BaseRepositoryMixin, Generic[T]):
     ```
     """
 
-    def __init__(self, model: Type[T], session: AsyncSession):
+    def __init__(
+            self,
+            model: Type[T],
+            session: AsyncSession,
+            cursor_backend: BaseCursorBackend | None = None,
+    ):
         """
         Initialize async repository.
 
         Args:
             model: SQLAlchemy model class
             session: Async database session
+            cursor_backend: Cursor token storage
         """
         self.model = model
         self.session = session
+        self._cursor_backend = cursor_backend or LocalCursorBackend()
 
     # ========================================================================
     # CREATE
