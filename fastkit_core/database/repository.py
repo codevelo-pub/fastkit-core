@@ -14,6 +14,8 @@ from sqlalchemy import and_, or_
 
 from fastkit_core.database.base import Base
 from fastkit_core.database.base_repository import _BaseRepositoryMixin
+from fastkit_core.database.cursor_backends.base import BaseCursorBackend
+from fastkit_core.database.cursor_backends.local import LocalCursorBackend
 
 T = TypeVar('T', bound=Base)
 
@@ -51,16 +53,23 @@ class Repository(_BaseRepositoryMixin, Generic[T]):
 ```
     """
 
-    def __init__(self, model: Type[T], session: Session):
+    def __init__(
+            self,
+            model: Type[T],
+            session: Session,
+            cursor_backend: BaseCursorBackend | None = None,
+    ):
         """
         Initialize repository.
 
         Args:
             model: SQLAlchemy model class
             session: Database session
+            cursor_backend: Cursor token storage
         """
         self.model = model
         self.session = session
+        self._cursor_backend = cursor_backend or LocalCursorBackend()
 
     # ========================================================================
     # CREATE
