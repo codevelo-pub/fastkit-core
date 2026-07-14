@@ -3,7 +3,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Any
 
-from redis.asyncio import Redis
+from redis import Redis
 
 from fastkit_core.database.cursor_backends.base import BaseCursorBackend
 from fastkit_core.http import InvalidCursorError
@@ -36,7 +36,7 @@ class RedisCursorBackend(BaseCursorBackend):
     def _key(self, token: str) -> str:
         return f'{self._key_prefix}:{token}'
 
-    async def encode(
+    def encode(
             self,
             field: str,
             value: Any,
@@ -52,12 +52,12 @@ class RedisCursorBackend(BaseCursorBackend):
             'direction': direction,
             'created_at': datetime.now(timezone.utc).isoformat(),
         }
-        await self._redis.set(key, json.dumps(data, default=str), ex=self._ttl)
+        self._redis.set(key, json.dumps(data, default=str), ex=self._ttl)
         return token
 
-    async def decode(self, token: str) -> dict[str, Any]:
+    def decode(self, token: str) -> dict[str, Any]:
         key = self._key(token)
-        raw = await self._redis.get(key)
+        raw = self._redis.get(key)
         if raw is None:
             raise InvalidCursorError(
                 f"Cursor token not found or expired: {token!r}"

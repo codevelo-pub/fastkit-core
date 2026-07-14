@@ -10,7 +10,7 @@ class BaseCursorBackend(ABC):
     """
 
     @abstractmethod
-    async def encode(
+    def encode(
             self,
             field: str,
             value: Any,
@@ -32,7 +32,7 @@ class BaseCursorBackend(ABC):
         pass
 
     @abstractmethod
-    async def decode(self, token: str) -> dict[str, Any]:
+    def decode(self, token: str) -> dict[str, Any]:
         """
         Decode an opaque token back to cursor state.
 

@@ -15,7 +15,7 @@ class LocalCursorBackend(BaseCursorBackend):
     Use RedisCursorBackend for sensitive datasets.
     """
 
-    async def encode(
+    def encode(
             self,
             field: str,
             value: Any,
@@ -28,7 +28,7 @@ class LocalCursorBackend(BaseCursorBackend):
         )
         return base64.urlsafe_b64encode(payload.encode()).decode()
 
-    async def decode(self, token: str) -> dict[str, Any]:
+    def decode(self, token: str) -> dict[str, Any]:
         try:
             payload = json.loads(base64.urlsafe_b64decode(token).decode())
             return payload
