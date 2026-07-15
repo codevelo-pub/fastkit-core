@@ -339,3 +339,70 @@ class TestRedisAsyncCursorBackend:
         assert f'myapp:cursor:{token}' in self.store
 
 
+# ============================================================================
+# AsyncRepository._encode_cursor_token / _decode_cursor_token dispatch
+# ============================================================================
+
+class TestAsyncRepositoryCursorTokenDispatch:
+    """
+    _encode_cursor_token and _decode_cursor_token must handle both
+    sync (LocalCursorBackend) and async (RedisAsyncCursorBackend) backends.
+    Lines 93 and 99 in async_repository.py.
+    """
+
+    @pytest.mark.asyncio
+    async def test_encode_cursor_token_with_sync_backend(self):
+        """Sync backend — result is not awaitable, returned directly."""
+        from fastkit_core.database.async_repository import AsyncRepository
+        from unittest.mock import MagicMock, AsyncMock
+
+        repo = AsyncRepository.__new__(AsyncRepository)
+        repo._cursor_backend = LocalCursorBackend()
+
+        token = await repo._encode_cursor_token(field='id', value=5, direction='asc')
+        assert isinstance(token, str)
+        # Verify it decodes correctly
+        decoded = repo._cursor_backend.decode(token)
+        assert decoded['value'] == 5
+
+    @pytest.mark.asyncio
+    async def test_encode_cursor_token_with_async_backend(self):
+        """Async backend — result is awaitable, must be awaited."""
+        from fastkit_core.database.async_repository import AsyncRepository
+
+        redis_client, store = _make_async_redis()
+        repo = AsyncRepository.__new__(AsyncRepository)
+        repo._cursor_backend = RedisAsyncCursorBackend(redis=redis_client)
+
+        token = await repo._encode_cursor_token(field='id', value=10, direction='desc')
+        assert isinstance(token, str)
+        key = f'fastkit:cursor:{token}'
+        assert key in store
+
+    @pytest.mark.asyncio
+    async def test_decode_cursor_token_with_sync_backend(self):
+        """Sync backend decode — result not awaitable, returned directly."""
+        from fastkit_core.database.async_repository import AsyncRepository
+
+        repo = AsyncRepository.__new__(AsyncRepository)
+        backend = LocalCursorBackend()
+        repo._cursor_backend = backend
+
+        token = backend.encode(field='id', value=7, direction='asc')
+        decoded = await repo._decode_cursor_token(token)
+        assert decoded['field'] == 'id'
+        assert decoded['value'] == 7
+
+    @pytest.mark.asyncio
+    async def test_decode_cursor_token_with_async_backend(self):
+        """Async backend decode — result awaitable, must be awaited."""
+        from fastkit_core.database.async_repository import AsyncRepository
+
+        redis_client, store = _make_async_redis()
+        repo = AsyncRepository.__new__(AsyncRepository)
+        backend = RedisAsyncCursorBackend(redis=redis_client)
+        repo._cursor_backend = backend
+
+        token = await backend.encode(field='id', value=99)
+        decoded = await repo._decode_cursor_token(token)
+        assert decoded['value'] == 99
