@@ -1,13 +1,13 @@
 from sqlalchemy.orm import Load
-from sqlalchemy import func, select
+from sqlalchemy import select
 from typing import Sequence, Any
-import base64
-import json
-from datetime import datetime
+from fastkit_core.database.cursor_backends.base import BaseCursorBackend
 
 
 class _BaseRepositoryMixin:
     model: Any
+
+    _cursor_backend: BaseCursorBackend
 
     LOOKUP_OPERATORS = {
         'eq': lambda col, val: col == val,
@@ -94,14 +94,6 @@ class _BaseRepositoryMixin:
             stmt = stmt.options(load_option)
 
         return stmt
-
-    def _encode_cursor(self, value: Any) -> str:
-        if isinstance(value, datetime):
-            value = value.isoformat()
-        return base64.urlsafe_b64encode(json.dumps(value).encode()).decode()
-
-    def _decode_cursor(self, cursor: str) -> Any:
-        return json.loads(base64.urlsafe_b64decode(cursor.encode()).decode())
 
     def _has_soft_delete(self) -> bool:
         """Check if model has soft delete support."""
