@@ -251,3 +251,91 @@ class TestRedisCursorBackend:
         ttl_value = kwargs.get('ex') or (args[2] if len(args) > 2 else None)
         assert ttl_value == 60
 
+
+# ============================================================================
+# RedisAsyncCursorBackend
+# ============================================================================
+
+class TestRedisAsyncCursorBackend:
+    """RedisAsyncCursorBackend — server-side opaque token via async Redis."""
+
+    def setup_method(self):
+        self.redis_client, self.store = _make_async_redis()
+        self.backend = RedisAsyncCursorBackend(redis=self.redis_client, ttl=300)
+
+    # --- encode ---
+
+    @pytest.mark.asyncio
+    async def test_encode_returns_string(self):
+        token = await self.backend.encode(field='id', value=1)
+        assert isinstance(token, str)
+
+    @pytest.mark.asyncio
+    async def test_encode_writes_to_redis(self):
+        token = await self.backend.encode(field='id', value=10)
+        key = f'fastkit:cursor:{token}'
+        assert key in self.store
+
+    @pytest.mark.asyncio
+    async def test_encode_stored_value_contains_field_and_value(self):
+        token = await self.backend.encode(field='id', value=99)
+        key = f'fastkit:cursor:{token}'
+        data = json.loads(self.store[key])
+        assert data['field'] == 'id'
+        assert data['value'] == 99
+
+    @pytest.mark.asyncio
+    async def test_encode_stores_direction(self):
+        token = await self.backend.encode(field='id', value=1, direction='desc')
+        key = f'fastkit:cursor:{token}'
+        data = json.loads(self.store[key])
+        assert data['direction'] == 'desc'
+
+    @pytest.mark.asyncio
+    async def test_encode_stores_filters(self):
+        token = await self.backend.encode(
+            field='id', value=1, filters={'status': 'active'}
+        )
+        key = f'fastkit:cursor:{token}'
+        data = json.loads(self.store[key])
+        assert data['filters'] == {'status': 'active'}
+
+    @pytest.mark.asyncio
+    async def test_encode_two_calls_produce_different_tokens(self):
+        t1 = await self.backend.encode(field='id', value=1)
+        t2 = await self.backend.encode(field='id', value=1)
+        assert t1 != t2
+
+    # --- decode ---
+
+    @pytest.mark.asyncio
+    async def test_decode_roundtrip(self):
+        token = await self.backend.encode(field='id', value=42, direction='asc')
+        decoded = await self.backend.decode(token)
+        assert decoded['field'] == 'id'
+        assert decoded['value'] == 42
+        assert decoded['direction'] == 'asc'
+
+    @pytest.mark.asyncio
+    async def test_decode_unknown_token_raises(self):
+        with pytest.raises(InvalidCursorError, match="not found or expired"):
+            await self.backend.decode('nonexistent-token')
+
+    @pytest.mark.asyncio
+    async def test_decode_corrupt_data_raises(self):
+        token = 'test-corrupt-async-token'
+        key = f'fastkit:cursor:{token}'
+        self.store[key] = 'not valid json {'
+        with pytest.raises(InvalidCursorError, match="Corrupt cursor data"):
+            await self.backend.decode(token)
+
+    @pytest.mark.asyncio
+    async def test_custom_key_prefix(self):
+        backend = RedisAsyncCursorBackend(
+            redis=self.redis_client,
+            key_prefix='myapp:cursor',
+        )
+        token = await backend.encode(field='id', value=1)
+        assert f'myapp:cursor:{token}' in self.store
+
+
