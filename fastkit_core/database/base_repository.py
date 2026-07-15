@@ -1,17 +1,13 @@
 from sqlalchemy.orm import Load
-from sqlalchemy import func, select
+from sqlalchemy import select
 from typing import Sequence, Any
-import base64
-import json
-from datetime import datetime
 from fastkit_core.database.cursor_backends.base import BaseCursorBackend
-from fastkit_core.database.cursor_backends.local import LocalCursorBackend
 
 
 class _BaseRepositoryMixin:
     model: Any
 
-    _cursor_backend: BaseCursorBackend = LocalCursorBackend()
+    _cursor_backend: BaseCursorBackend
 
     LOOKUP_OPERATORS = {
         'eq': lambda col, val: col == val,

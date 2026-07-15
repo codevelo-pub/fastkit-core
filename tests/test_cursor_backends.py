@@ -16,9 +16,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 from typing import Any
 
-from fastkit_core.database.cursor_backends.local import LocalCursorBackend
-from fastkit_core.database.cursor_backends.redis import RedisCursorBackend
-from fastkit_core.database.cursor_backends.redis_async import RedisAsyncCursorBackend
+from fastkit_core.database.cursor_backends import LocalCursorBackend, RedisCursorBackend, RedisAsyncCursorBackend
 from fastkit_core.database.exceptions import InvalidCursorError
 
 

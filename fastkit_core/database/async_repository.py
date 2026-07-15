@@ -12,14 +12,11 @@ from typing import Any, Generic, Type, TypeVar, Sequence, Literal
 from sqlalchemy import and_, or_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Load
-
-import asyncio
 import inspect
 
 from fastkit_core.database.base import Base
 from fastkit_core.database.base_repository import _BaseRepositoryMixin
-from fastkit_core.database.cursor_backends.base import BaseCursorBackend
-from fastkit_core.database.cursor_backends.local import LocalCursorBackend
+from fastkit_core.database.cursor_backends import BaseCursorBackend, LocalCursorBackend
 
 T = TypeVar('T', bound=Base)
 
@@ -723,7 +720,63 @@ class AsyncRepository(_BaseRepositoryMixin, Generic[T]):
             _load_relations: Sequence[Load] | None = None,
             **filters
     ) -> tuple[list[T], str | None]:
+        """
+        Paginate records using cursor-based pagination asynchronously.
 
+        More efficient than offset pagination for large datasets — no COUNT query,
+        consistent results even when records are inserted between pages.
+
+        The cursor encodes the position of the last seen record. On each subsequent
+        request, only records after that position are returned. The cursor is opaque
+        to the client — its internal format depends on the configured cursor backend:
+        - LocalCursorBackend (default): base64-encoded JSON, stateless
+        - RedisAsyncCursorBackend: random token stored server-side, hides field values
+
+        Args:
+            per_page: Number of records per page. Default: 20.
+            cursor: Opaque cursor string from a previous response. None for first page.
+            cursor_field: Model field used as the cursor anchor. Must be unique and
+                monotonically ordered (e.g. 'id', 'created_at'). Default: 'id'.
+            direction: Sort direction — 'asc' for oldest-first, 'desc' for newest-first.
+                Default: 'asc'.
+            _load_relations: SQLAlchemy Load objects for eager loading (prevents N+1).
+            **filters: Additional filter conditions with Django-style operator support.
+
+        Returns:
+            Tuple of (items, next_cursor) where next_cursor is None on the last page.
+
+        Raises:
+            InvalidCursorError: If the cursor token is forged, expired, or malformed.
+
+        Example:
+        ```python
+            # First page
+            products, next_cursor = await repo.cursor_paginate(per_page=20)
+
+            # Next page
+            products, next_cursor = await repo.cursor_paginate(
+                per_page=20,
+                cursor=next_cursor,
+            )
+
+            # With filters and custom cursor field
+            products, next_cursor = await repo.cursor_paginate(
+                per_page=20,
+                cursor=next_cursor,
+                cursor_field='created_at',
+                direction='desc',
+                status='active',
+            )
+
+            # With eager loading
+            from sqlalchemy.orm import selectinload
+
+            products, next_cursor = await repo.cursor_paginate(
+                per_page=20,
+                _load_relations=[selectinload(Product.category)],
+            )
+        ```
+        """
         if cursor is not None:
             decoded = await self._decode_cursor_token(cursor)
             cursor_field = decoded['field']
