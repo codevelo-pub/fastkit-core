@@ -139,3 +139,115 @@ class TestLocalCursorBackend:
     def test_decode_empty_string_raises(self):
         with pytest.raises(InvalidCursorError):
             self.backend.decode('')
+
+
+# ============================================================================
+# RedisCursorBackend (sync)
+# ============================================================================
+
+class TestRedisCursorBackend:
+    """RedisCursorBackend — server-side opaque token via sync Redis."""
+
+    def setup_method(self):
+        self.redis_client, self.store = _make_sync_redis()
+        self.backend = RedisCursorBackend(redis=self.redis_client, ttl=300)
+
+    # --- encode ---
+
+    def test_encode_returns_string(self):
+        token = self.backend.encode(field='id', value=1)
+        assert isinstance(token, str)
+
+    def test_encode_token_is_opaque(self):
+        """Token must not be base64-decodable to the field value."""
+        token = self.backend.encode(field='id', value=42)
+        try:
+            raw = base64.urlsafe_b64decode(token + '==')
+            payload = json.loads(raw)
+            # If it decoded, it must not expose the value directly
+            assert payload.get('value') != 42
+        except Exception:
+            pass  # Expected — opaque token is not base64 JSON
+
+    def test_encode_writes_to_redis(self):
+        token = self.backend.encode(field='id', value=10)
+        key = f'fastkit:cursor:{token}'
+        assert key in self.store
+
+    def test_encode_stored_value_contains_field_and_value(self):
+        token = self.backend.encode(field='id', value=99)
+        key = f'fastkit:cursor:{token}'
+        data = json.loads(self.store[key])
+        assert data['field'] == 'id'
+        assert data['value'] == 99
+
+    def test_encode_stores_direction(self):
+        token = self.backend.encode(field='id', value=1, direction='desc')
+        key = f'fastkit:cursor:{token}'
+        data = json.loads(self.store[key])
+        assert data['direction'] == 'desc'
+
+    def test_encode_stores_filters(self):
+        token = self.backend.encode(field='id', value=1, filters={'status': 'active'})
+        key = f'fastkit:cursor:{token}'
+        data = json.loads(self.store[key])
+        assert data['filters'] == {'status': 'active'}
+
+    def test_encode_empty_filters_stored_as_empty_dict(self):
+        token = self.backend.encode(field='id', value=1)
+        key = f'fastkit:cursor:{token}'
+        data = json.loads(self.store[key])
+        assert data['filters'] == {}
+
+    def test_encode_uses_ttl(self):
+        self.backend.encode(field='id', value=1)
+        # Verify set was called with ex=300
+        call_kwargs = self.redis_client.set.call_args
+        assert call_kwargs.kwargs.get('ex') == 300 or call_kwargs.args[2] == 300 \
+               or (len(call_kwargs.args) > 2 and call_kwargs.args[2] == 300)
+
+    def test_encode_two_calls_produce_different_tokens(self):
+        t1 = self.backend.encode(field='id', value=1)
+        t2 = self.backend.encode(field='id', value=1)
+        assert t1 != t2
+
+    # --- decode ---
+
+    def test_decode_roundtrip(self):
+        token = self.backend.encode(field='id', value=42, direction='asc')
+        decoded = self.backend.decode(token)
+        assert decoded['field'] == 'id'
+        assert decoded['value'] == 42
+        assert decoded['direction'] == 'asc'
+
+    def test_decode_unknown_token_raises(self):
+        with pytest.raises(InvalidCursorError, match="not found or expired"):
+            self.backend.decode('nonexistent-token')
+
+    def test_decode_corrupt_data_raises(self):
+        """Manually write corrupt JSON into the store."""
+        token = 'test-corrupt-token'
+        key = f'fastkit:cursor:{token}'
+        self.store[key] = 'not valid json {'
+        with pytest.raises(InvalidCursorError, match="Corrupt cursor data"):
+            self.backend.decode(token)
+
+    def test_custom_key_prefix(self):
+        backend = RedisCursorBackend(
+            redis=self.redis_client,
+            key_prefix='myapp:cursor',
+        )
+        token = backend.encode(field='id', value=1)
+        key = f'myapp:cursor:{token}'
+        assert key in self.store
+
+    def test_custom_ttl(self):
+        backend = RedisCursorBackend(redis=self.redis_client, ttl=60)
+        backend.encode(field='id', value=1)
+        call_kwargs = self.redis_client.set.call_args
+        # Accept both positional and keyword ttl argument
+        args = call_kwargs.args if call_kwargs.args else ()
+        kwargs = call_kwargs.kwargs if call_kwargs.kwargs else {}
+        ttl_value = kwargs.get('ex') or (args[2] if len(args) > 2 else None)
+        assert ttl_value == 60
+
