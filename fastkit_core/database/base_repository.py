@@ -183,3 +183,8 @@ class _BaseRepositoryMixin:
         """
         self._scopes = [s for s in self._scopes if not isinstance(s, scope_type)]
 
+    def _apply_scopes(self, query: Any) -> Any:
+        """Apply all registered scopes to the query in registration order."""
+        for scope in self._scopes:
+            query = scope.apply(query, self.model)
+        return query
