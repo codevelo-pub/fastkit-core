@@ -2,12 +2,14 @@ from sqlalchemy.orm import Load
 from sqlalchemy import select
 from typing import Sequence, Any
 from fastkit_core.database.cursor_backends.base import BaseCursorBackend
+from fastkit_core.database.scopes import QueryScope
 
 
 class _BaseRepositoryMixin:
     model: Any
 
     _cursor_backend: BaseCursorBackend
+    _scopes: list[QueryScope]
 
     LOOKUP_OPERATORS = {
         'eq': lambda col, val: col == val,
@@ -144,4 +146,23 @@ class _BaseRepositoryMixin:
             'has_next': page < total_pages,
             'has_prev': page > 1,
         }
+
+    def add_scope(self, scope: QueryScope) -> None:
+        """
+        Register a query scope applied to all subsequent queries.
+
+        Scopes are applied in registration order — each scope receives
+        the query returned by the previous one.
+
+        Args:
+            scope: Any object implementing the QueryScope protocol.
+
+        Example:
+        ```python
+            repo.add_scope(AgencyScope(current_user.agency_id))
+            repo.add_scope(PublishedScope())
+         ```
+        """
+        self._scopes.append(scope)
+
 
