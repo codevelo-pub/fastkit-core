@@ -165,4 +165,21 @@ class _BaseRepositoryMixin:
         """
         self._scopes.append(scope)
 
+    def remove_scope(self, scope_type: type) -> None:
+        """
+        Remove all registered scopes of a given type.
+
+        Useful for admin queries that need to bypass tenant or
+        visibility restrictions.
+
+        Args:
+            scope_type: The class of the scope to remove.
+
+        Example:
+        ```python
+            repo.remove_scope(AgencyScope)
+            all_items = await repo.get_all()  # bypasses agency filter
+        ```
+        """
+        self._scopes = [s for s in self._scopes if not isinstance(s, scope_type)]
 
