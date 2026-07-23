@@ -72,6 +72,7 @@ class AsyncRepository(_BaseRepositoryMixin, Generic[T]):
         self.model = model
         self.session = session
         self._cursor_backend = cursor_backend or LocalCursorBackend()
+        self._scopes = []
 
     async def _encode_cursor_token(
             self,

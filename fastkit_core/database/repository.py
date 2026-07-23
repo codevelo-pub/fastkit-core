@@ -69,6 +69,7 @@ class Repository(_BaseRepositoryMixin, Generic[T]):
         self.model = model
         self.session = session
         self._cursor_backend = cursor_backend or LocalCursorBackend()
+        self._scopes = []
 
     # ========================================================================
     # CREATE
