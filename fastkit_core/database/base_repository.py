@@ -1,13 +1,16 @@
 from sqlalchemy.orm import Load
 from sqlalchemy import select
 from typing import Sequence, Any
+from contextlib import contextmanager
 from fastkit_core.database.cursor_backends.base import BaseCursorBackend
+from fastkit_core.database.scopes import QueryScope
 
 
 class _BaseRepositoryMixin:
     model: Any
 
     _cursor_backend: BaseCursorBackend
+    _scopes: list[QueryScope]
 
     LOOKUP_OPERATORS = {
         'eq': lambda col, val: col == val,
@@ -145,3 +148,92 @@ class _BaseRepositoryMixin:
             'has_prev': page > 1,
         }
 
+    def add_scope(self, scope: QueryScope) -> None:
+        """
+        Register a query scope applied to all subsequent queries.
+
+        Scopes are applied in registration order — each scope receives
+        the query returned by the previous one.
+
+        Args:
+            scope: Any object implementing the QueryScope protocol.
+
+        Example:
+        ```python
+            repo.add_scope(AgencyScope(current_user.agency_id))
+            repo.add_scope(PublishedScope())
+         ```
+        """
+        self._scopes.append(scope)
+
+    def remove_scope(self, scope_type: type) -> None:
+        """
+        Remove all registered scopes of a given type.
+
+        Useful for admin queries that need to bypass tenant or
+        visibility restrictions.
+
+        Args:
+            scope_type: The class of the scope to remove.
+
+        Example:
+        ```python
+            repo.remove_scope(AgencyScope)
+            all_items = await repo.get_all()  # bypasses agency filter
+        ```
+        """
+        self._scopes = [s for s in self._scopes if not isinstance(s, scope_type)]
+
+    @contextmanager
+    def without_scope(self, *scope_types: type):
+        """
+        Temporarily remove one or more scopes for the duration of the block.
+
+        Scopes are restored automatically when the block exits, even if an
+        exception is raised. Accepts multiple scope types in a single call.
+
+        Args:
+            *scope_types: One or more scope classes to temporarily remove.
+
+        Example:
+    ```python
+            # Single scope
+            with repo.without_scope(AgencyScope):
+                all_items = repo.get_all()  # bypasses AgencyScope
+
+            # Multiple scopes
+            with repo.without_scope(AgencyScope, SoftDeleteScope):
+                all_items = repo.get_all()
+
+            # Async context — without_scope is sync, works in both
+            with repo.without_scope(AgencyScope):
+                all_items = await repo.get_all()
+    ```
+
+        Note:
+            This is a sync context manager and works in both sync and async
+            repositories. For async use, call with regular `with`, not `async with`:
+
+    ```python
+            with repo.without_scope(AgencyScope):
+                items = await repo.get_all()
+    ```
+        """
+        # Save current scopes
+        saved_scopes = list(self._scopes)
+        # Temporarily remove requested scope types
+        self._scopes = [
+            s for s in self._scopes
+            if not isinstance(s, tuple(scope_types))
+        ]
+        try:
+            yield self
+        finally:
+            # Always restore original scopes
+            self._scopes = saved_scopes
+
+    def _apply_scopes(self, query: Any) -> Any:
+        """Apply all registered scopes to the query in registration order."""
+        for scope in self._scopes:
+            query = scope.apply(query, self.model)
+        return query
