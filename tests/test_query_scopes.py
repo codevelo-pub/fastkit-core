@@ -162,3 +162,31 @@ async def async_seeded_products(async_product_repo):
         {'name': 'Monitor', 'category': 'Electronics', 'tenant_id': 2, 'price': 400, 'is_active': True},
         {'name': 'Tablet', 'category': 'Electronics', 'tenant_id': 2, 'price': 600, 'is_active': True},
     ])
+
+
+# ============================================================================
+# QueryScope protocol
+# ============================================================================
+
+class TestQueryScopeProtocol:
+    """QueryScope is a Protocol — structural typing, no inheritance required."""
+
+    def test_tenant_scope_satisfies_protocol(self):
+        """TenantScope satisfies QueryScope without inheriting from it."""
+        scope = TenantScope(1)
+        assert callable(scope.apply)
+
+    def test_scope_apply_returns_modified_query(self):
+        """apply() must accept (query, model) and return the modified query."""
+        scope = TenantScope(1)
+        fake_query = select(ScopedProduct)
+        result = scope.apply(fake_query, ScopedProduct)
+        # Result should differ from original (WHERE clause added)
+        assert str(result) != str(fake_query)
+        assert 'tenant_id' in str(result)
+
+    def test_multiple_scope_types_satisfy_protocol(self):
+        """Any class with apply(query, model) satisfies QueryScope."""
+        for scope in [TenantScope(1), CategoryScope('Electronics'), ActiveScope(), PriceCapScope(500)]:
+            assert hasattr(scope, 'apply')
+            assert callable(scope.apply)
