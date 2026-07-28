@@ -190,3 +190,49 @@ class TestQueryScopeProtocol:
         for scope in [TenantScope(1), CategoryScope('Electronics'), ActiveScope(), PriceCapScope(500)]:
             assert hasattr(scope, 'apply')
             assert callable(scope.apply)
+
+
+# ============================================================================
+# add_scope
+# ============================================================================
+
+class TestAddScope:
+    """add_scope registers scopes on the repository instance."""
+
+    def test_add_scope_empty_by_default(self, product_repo):
+        assert product_repo._scopes == []
+
+    def test_add_scope_single(self, product_repo):
+        scope = TenantScope(1)
+        product_repo.add_scope(scope)
+        assert len(product_repo._scopes) == 1
+        assert product_repo._scopes[0] is scope
+
+    def test_add_scope_multiple(self, product_repo):
+        product_repo.add_scope(TenantScope(1))
+        product_repo.add_scope(CategoryScope('Electronics'))
+        assert len(product_repo._scopes) == 2
+
+    def test_add_scope_preserves_order(self, product_repo):
+        s1 = TenantScope(1)
+        s2 = CategoryScope('Electronics')
+        s3 = ActiveScope()
+        product_repo.add_scope(s1)
+        product_repo.add_scope(s2)
+        product_repo.add_scope(s3)
+        assert product_repo._scopes[0] is s1
+        assert product_repo._scopes[1] is s2
+        assert product_repo._scopes[2] is s3
+
+    def test_add_scope_same_type_twice(self, product_repo):
+        """Two instances of the same type are both registered."""
+        product_repo.add_scope(TenantScope(1))
+        product_repo.add_scope(TenantScope(2))
+        assert len(product_repo._scopes) == 2
+
+    def test_add_scope_does_not_affect_other_instances(self, sync_session):
+        """Scopes are per-instance, not shared across repositories."""
+        repo_a = Repository(ScopedProduct, sync_session)
+        repo_b = Repository(ScopedProduct, sync_session)
+        repo_a.add_scope(TenantScope(1))
+        assert repo_b._scopes == []
