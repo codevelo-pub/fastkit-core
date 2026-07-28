@@ -90,6 +90,7 @@ from fastkit_core.database.cursor_backends import (
     RedisAsyncCursorBackend,
 )
 from fastkit_core.database.exceptions import InvalidCursorError
+from fastkit_core.database.scopes import QueryScope
 
 __all__ = [
     # Base
@@ -141,4 +142,5 @@ __all__ = [
     'RedisCursorBackend',
     'RedisAsyncCursorBackend',
     'InvalidCursorError',
+    'QueryScope',
 ]
