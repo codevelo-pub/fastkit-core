@@ -476,3 +476,125 @@ class TestSyncScopeQueryIntegration:
         assert new.id is not None
         assert new.tenant_id == 1  # tenant 1 even though scope is tenant 2
 
+
+# ============================================================================
+# AsyncRepository — scope integration with query methods
+# ============================================================================
+
+class TestAsyncScopeQueryIntegration:
+    """Feature parity with sync — scopes must work in all async read methods."""
+
+    @pytest.mark.asyncio
+    async def test_get_all_with_tenant_scope(self, async_product_repo, async_seeded_products):
+        async_product_repo.add_scope(TenantScope(1))
+        results = await async_product_repo.get_all()
+        assert len(results) == 4
+        assert all(p.tenant_id == 1 for p in results)
+
+    @pytest.mark.asyncio
+    async def test_filter_with_tenant_scope(self, async_product_repo, async_seeded_products):
+        async_product_repo.add_scope(TenantScope(1))
+        results = await async_product_repo.filter(category='Electronics')
+        assert len(results) == 3
+        assert all(p.tenant_id == 1 for p in results)
+
+    @pytest.mark.asyncio
+    async def test_filter_or_with_tenant_scope(self, async_product_repo, async_seeded_products):
+        async_product_repo.add_scope(TenantScope(1))
+        results = await async_product_repo.filter_or(
+            {'category': 'Electronics'},
+            {'category': 'Furniture'},
+        )
+        assert len(results) == 4
+        assert all(p.tenant_id == 1 for p in results)
+
+    @pytest.mark.asyncio
+    async def test_count_with_tenant_scope(self, async_product_repo, async_seeded_products):
+        async_product_repo.add_scope(TenantScope(1))
+        count = await async_product_repo.count()
+        assert count == 4
+
+    @pytest.mark.asyncio
+    async def test_exists_with_tenant_scope(self, async_product_repo, async_seeded_products):
+        async_product_repo.add_scope(TenantScope(2))
+        assert await async_product_repo.exists(name='Monitor') is True
+        assert await async_product_repo.exists(name='Laptop') is False
+
+    @pytest.mark.asyncio
+    async def test_first_with_tenant_scope(self, async_product_repo, async_seeded_products):
+        async_product_repo.add_scope(TenantScope(2))
+        result = await async_product_repo.first()
+        assert result is not None
+        assert result.tenant_id == 2
+
+    @pytest.mark.asyncio
+    async def test_get_with_tenant_scope(self, async_product_repo, async_seeded_products):
+        tenant2_product = await async_product_repo.first(tenant_id=2)
+        async_product_repo.add_scope(TenantScope(1))
+        result = await async_product_repo.get(tenant2_product.id)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_paginate_with_tenant_scope(self, async_product_repo, async_seeded_products):
+        async_product_repo.add_scope(TenantScope(1))
+        items, meta = await async_product_repo.paginate(page=1, per_page=2)
+        assert len(items) == 2
+        assert meta['total'] == 4
+        assert all(p.tenant_id == 1 for p in items)
+
+    @pytest.mark.asyncio
+    async def test_cursor_paginate_with_tenant_scope(self, async_product_repo, async_seeded_products):
+        async_product_repo.add_scope(TenantScope(1))
+        items, next_cursor = await async_product_repo.cursor_paginate(per_page=2)
+        assert len(items) == 2
+        assert all(p.tenant_id == 1 for p in items)
+
+    @pytest.mark.asyncio
+    async def test_composed_scopes(self, async_product_repo, async_seeded_products):
+        async_product_repo.add_scope(TenantScope(1))
+        async_product_repo.add_scope(CategoryScope('Electronics'))
+        results = await async_product_repo.get_all()
+        assert len(results) == 3
+        assert all(p.tenant_id == 1 and p.category == 'Electronics' for p in results)
+
+    @pytest.mark.asyncio
+    async def test_without_scope_in_async_context(self, async_product_repo, async_seeded_products):
+        """without_scope is a sync context manager — use `with`, not `async with`."""
+        async_product_repo.add_scope(TenantScope(1))
+        with async_product_repo.without_scope(TenantScope):
+            all_results = await async_product_repo.get_all()
+        scoped_results = await async_product_repo.get_all()
+        assert len(all_results) == 6
+        assert len(scoped_results) == 4
+
+    @pytest.mark.asyncio
+    async def test_without_scope_restores_on_async_exception(
+            self, async_product_repo, async_seeded_products
+    ):
+        """Scope must be restored even if an awaited call inside the block raises."""
+        async_product_repo.add_scope(TenantScope(1))
+
+        class FakeError(Exception):
+            pass
+
+        try:
+            with async_product_repo.without_scope(TenantScope):
+                raise FakeError
+        except FakeError:
+            pass
+
+        count = await async_product_repo.count()
+        assert count == 4  # tenant 1 scope restored
+
+    @pytest.mark.asyncio
+    async def test_scope_does_not_affect_create(self, async_product_repo, async_seeded_products):
+        async_product_repo.add_scope(TenantScope(2))
+        new = await async_product_repo.create({
+            'name': 'Keyboard',
+            'category': 'Electronics',
+            'tenant_id': 1,
+            'price': 100,
+            'is_active': True,
+        })
+        assert new.id is not None
+        assert new.tenant_id == 1
