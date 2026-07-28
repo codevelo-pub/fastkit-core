@@ -275,3 +275,87 @@ class TestRemoveScope:
     def test_remove_scope_on_empty_repo_is_noop(self, product_repo):
         product_repo.remove_scope(TenantScope)
         assert product_repo._scopes == []
+
+
+# ============================================================================
+# without_scope
+# ============================================================================
+
+class TestWithoutScope:
+    """without_scope is a context manager that temporarily removes scopes."""
+
+    def test_without_scope_removes_scope_inside_block(self, product_repo):
+        product_repo.add_scope(TenantScope(1))
+        with product_repo.without_scope(TenantScope):
+            assert not any(isinstance(s, TenantScope) for s in product_repo._scopes)
+
+    def test_without_scope_restores_scope_after_block(self, product_repo):
+        product_repo.add_scope(TenantScope(1))
+        with product_repo.without_scope(TenantScope):
+            pass
+        assert any(isinstance(s, TenantScope) for s in product_repo._scopes)
+
+    def test_without_scope_restores_on_exception(self, product_repo):
+        """Scopes must be restored even if the block raises."""
+        product_repo.add_scope(TenantScope(1))
+        try:
+            with product_repo.without_scope(TenantScope):
+                raise ValueError("simulated error")
+        except ValueError:
+            pass
+        assert any(isinstance(s, TenantScope) for s in product_repo._scopes)
+
+    def test_without_scope_multiple_types(self, product_repo):
+        product_repo.add_scope(TenantScope(1))
+        product_repo.add_scope(CategoryScope('Electronics'))
+        product_repo.add_scope(ActiveScope())
+        with product_repo.without_scope(TenantScope, CategoryScope):
+            remaining = product_repo._scopes
+            assert not any(isinstance(s, TenantScope) for s in remaining)
+            assert not any(isinstance(s, CategoryScope) for s in remaining)
+            assert any(isinstance(s, ActiveScope) for s in remaining)
+        # All restored
+        assert len(product_repo._scopes) == 3
+
+    def test_without_scope_nonexistent_type_is_noop(self, product_repo):
+        product_repo.add_scope(TenantScope(1))
+        with product_repo.without_scope(CategoryScope):
+            assert len(product_repo._scopes) == 1
+
+    def test_without_scope_yields_repo(self, product_repo):
+        product_repo.add_scope(TenantScope(1))
+        with product_repo.without_scope(TenantScope) as repo:
+            assert repo is product_repo
+
+    def test_without_scope_nested_blocks(self, product_repo):
+        """Nested without_scope blocks each restore correctly."""
+        product_repo.add_scope(TenantScope(1))
+        product_repo.add_scope(CategoryScope('Electronics'))
+
+        with product_repo.without_scope(TenantScope):
+            assert not any(isinstance(s, TenantScope) for s in product_repo._scopes)
+
+            with product_repo.without_scope(CategoryScope):
+                assert product_repo._scopes == []
+
+            # CategoryScope restored after inner block
+            assert any(isinstance(s, CategoryScope) for s in product_repo._scopes)
+
+        # TenantScope restored after outer block
+        assert any(isinstance(s, TenantScope) for s in product_repo._scopes)
+        assert len(product_repo._scopes) == 2
+
+    def test_without_scope_does_not_affect_queries_outside_block(
+            self, product_repo, seeded_products
+    ):
+        """Scope is applied normally before and after the block."""
+        product_repo.add_scope(TenantScope(1))
+
+        count_before = product_repo.count()
+        with product_repo.without_scope(TenantScope):
+            count_inside = product_repo.count()
+        count_after = product_repo.count()
+
+        assert count_before == 4  # tenant 1 only
+        assert count_inside == 6  # all tenants
+        assert count_after == 4  # tenant 1 restored
