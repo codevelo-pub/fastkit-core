@@ -236,3 +236,42 @@ class TestAddScope:
         repo_b = Repository(ScopedProduct, sync_session)
         repo_a.add_scope(TenantScope(1))
         assert repo_b._scopes == []
+
+
+# ============================================================================
+# remove_scope
+# ============================================================================
+
+class TestRemoveScope:
+    """remove_scope removes all scopes of a given type."""
+
+    def test_remove_scope_single(self, product_repo):
+        product_repo.add_scope(TenantScope(1))
+        product_repo.remove_scope(TenantScope)
+        assert product_repo._scopes == []
+
+    def test_remove_scope_leaves_other_types(self, product_repo):
+        product_repo.add_scope(TenantScope(1))
+        product_repo.add_scope(CategoryScope('Electronics'))
+        product_repo.remove_scope(TenantScope)
+        assert len(product_repo._scopes) == 1
+        assert isinstance(product_repo._scopes[0], CategoryScope)
+
+    def test_remove_scope_removes_all_instances_of_type(self, product_repo):
+        """If two scopes of the same type are registered, both are removed."""
+        product_repo.add_scope(TenantScope(1))
+        product_repo.add_scope(TenantScope(2))
+        product_repo.add_scope(ActiveScope())
+        product_repo.remove_scope(TenantScope)
+        assert len(product_repo._scopes) == 1
+        assert isinstance(product_repo._scopes[0], ActiveScope)
+
+    def test_remove_scope_nonexistent_type_is_noop(self, product_repo):
+        """Removing a type that was never registered is a no-op."""
+        product_repo.add_scope(TenantScope(1))
+        product_repo.remove_scope(CategoryScope)
+        assert len(product_repo._scopes) == 1
+
+    def test_remove_scope_on_empty_repo_is_noop(self, product_repo):
+        product_repo.remove_scope(TenantScope)
+        assert product_repo._scopes == []
