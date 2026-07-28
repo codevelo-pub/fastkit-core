@@ -87,11 +87,12 @@ class PriceCapScope:
 # Sync fixtures
 # ============================================================================
 
-@pytest.fixture(scope='module')
+@pytest.fixture
 def sync_engine():
     engine = create_engine('sqlite:///:memory:', echo=False)
     Base.metadata.create_all(engine)
-    return engine
+    yield engine
+    engine.dispose()
 
 
 @pytest.fixture
@@ -130,7 +131,7 @@ def seeded_products(product_repo):
 # Async fixtures
 # ============================================================================
 
-@pytest_asyncio.fixture(scope='module')
+@pytest_asyncio.fixture
 async def async_engine():
     engine = create_async_engine('sqlite+aiosqlite:///:memory:', echo=False)
     async with engine.begin() as conn:
@@ -359,3 +360,119 @@ class TestWithoutScope:
         assert count_before == 4  # tenant 1 only
         assert count_inside == 6  # all tenants
         assert count_after == 4  # tenant 1 restored
+
+
+# ============================================================================
+# Sync Repository — scope integration with query methods
+# ============================================================================
+
+class TestSyncScopeQueryIntegration:
+    """_apply_scopes is called in every read query method."""
+
+    def test_get_all_with_tenant_scope(self, product_repo, seeded_products):
+        product_repo.add_scope(TenantScope(1))
+        results = product_repo.get_all()
+        assert len(results) == 4
+        assert all(p.tenant_id == 1 for p in results)
+
+    def test_filter_with_tenant_scope(self, product_repo, seeded_products):
+        product_repo.add_scope(TenantScope(1))
+        results = product_repo.filter(category='Electronics')
+        assert len(results) == 3
+        assert all(p.tenant_id == 1 for p in results)
+
+    def test_filter_or_with_tenant_scope(self, product_repo, seeded_products):
+        product_repo.add_scope(TenantScope(1))
+        results = product_repo.filter_or(
+            {'category': 'Electronics'},
+            {'category': 'Furniture'},
+        )
+        assert len(results) == 4
+        assert all(p.tenant_id == 1 for p in results)
+
+    def test_count_with_tenant_scope(self, product_repo, seeded_products):
+        product_repo.add_scope(TenantScope(1))
+        count = product_repo.count()
+        assert count == 4
+
+    def test_count_with_additional_filter(self, product_repo, seeded_products):
+        product_repo.add_scope(TenantScope(1))
+        count = product_repo.count(category='Electronics')
+        assert count == 3
+
+    def test_exists_with_tenant_scope(self, product_repo, seeded_products):
+        product_repo.add_scope(TenantScope(2))
+        assert product_repo.exists(name='Monitor') is True
+        assert product_repo.exists(name='Laptop') is False  # Laptop belongs to tenant 1
+
+    def test_first_with_tenant_scope(self, product_repo, seeded_products):
+        product_repo.add_scope(TenantScope(2))
+        result = product_repo.first()
+        assert result is not None
+        assert result.tenant_id == 2
+
+    def test_get_with_tenant_scope(self, product_repo, seeded_products):
+        """get() by id is also scoped."""
+        tenant2_product = product_repo.first(tenant_id=2)
+        product_repo.add_scope(TenantScope(1))
+        # tenant 1 scope — should not find tenant 2 record
+        result = product_repo.get(tenant2_product.id)
+        assert result is None
+
+    def test_paginate_with_tenant_scope(self, product_repo, seeded_products):
+        product_repo.add_scope(TenantScope(1))
+        items, meta = product_repo.paginate(page=1, per_page=2)
+        assert len(items) == 2
+        assert meta['total'] == 4
+        assert all(p.tenant_id == 1 for p in items)
+
+    def test_cursor_paginate_with_tenant_scope(self, product_repo, seeded_products):
+        product_repo.add_scope(TenantScope(1))
+        items, next_cursor = product_repo.cursor_paginate(per_page=2)
+        assert len(items) == 2
+        assert all(p.tenant_id == 1 for p in items)
+
+    def test_cursor_paginate_second_page_with_scope(self, product_repo, seeded_products):
+        product_repo.add_scope(TenantScope(1))
+        _, cursor = product_repo.cursor_paginate(per_page=2)
+        items_p2, _ = product_repo.cursor_paginate(per_page=2, cursor=cursor)
+        assert all(p.tenant_id == 1 for p in items_p2)
+
+    def test_composed_scopes(self, product_repo, seeded_products):
+        """Multiple scopes compose with AND semantics."""
+        product_repo.add_scope(TenantScope(1))
+        product_repo.add_scope(CategoryScope('Electronics'))
+        results = product_repo.get_all()
+        assert len(results) == 3
+        assert all(p.tenant_id == 1 and p.category == 'Electronics' for p in results)
+
+    def test_three_composed_scopes(self, product_repo, seeded_products):
+        product_repo.add_scope(TenantScope(1))
+        product_repo.add_scope(CategoryScope('Electronics'))
+        product_repo.add_scope(ActiveScope())
+        results = product_repo.get_all()
+        assert len(results) == 2
+        assert all(p.is_active for p in results)
+
+    def test_without_scope_restores_filter_behavior(self, product_repo, seeded_products):
+        product_repo.add_scope(TenantScope(1))
+        with product_repo.without_scope(TenantScope):
+            all_results = product_repo.get_all()
+        scoped_results = product_repo.get_all()
+        assert len(all_results) == 6
+        assert len(scoped_results) == 4
+
+    def test_scope_does_not_affect_write_operations(self, product_repo, seeded_products):
+        """Scopes are SELECT-only — create/update/delete use direct session."""
+        product_repo.add_scope(TenantScope(2))
+        # create should work regardless of scope
+        new = product_repo.create({
+            'name': 'Keyboard',
+            'category': 'Electronics',
+            'tenant_id': 1,
+            'price': 100,
+            'is_active': True,
+        })
+        assert new.id is not None
+        assert new.tenant_id == 1  # tenant 1 even though scope is tenant 2
+
