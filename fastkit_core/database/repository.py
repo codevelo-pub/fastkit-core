@@ -69,6 +69,7 @@ class Repository(_BaseRepositoryMixin, Generic[T]):
         self.model = model
         self.session = session
         self._cursor_backend = cursor_backend or LocalCursorBackend()
+        self._scopes = []
 
     # ========================================================================
     # CREATE
@@ -158,6 +159,8 @@ class Repository(_BaseRepositoryMixin, Generic[T]):
         if self._has_soft_delete():
             query = query.where(self.model.deleted_at.is_(None))
 
+        query = self._apply_scopes(query)
+
         result = self.session.execute(query)
         return result.scalar_one_or_none()
 
@@ -214,6 +217,7 @@ class Repository(_BaseRepositoryMixin, Generic[T]):
         if limit:
             query = query.limit(limit)
 
+        query = self._apply_scopes(query)
         result = self.session.execute(query)
         return result.scalars().all()
 
@@ -288,6 +292,7 @@ class Repository(_BaseRepositoryMixin, Generic[T]):
         if _limit:
             query = query.limit(_limit)
 
+        query = self._apply_scopes(query)
         # Execute
         result = self.session.execute(query)
         return result.scalars().all()
@@ -394,6 +399,7 @@ class Repository(_BaseRepositoryMixin, Generic[T]):
         if _order_by:
             query = self._apply_ordering(query, _order_by)
 
+        query = self._apply_scopes(query)
         result = self.session.execute(query)
         return result.scalars().all()
 
@@ -427,6 +433,7 @@ class Repository(_BaseRepositoryMixin, Generic[T]):
         if conditions:
             query = query.where(and_(*conditions))
 
+        query = self._apply_scopes(query)
         result = self.session.execute(query)
         return result.scalar() or 0
 
