@@ -206,7 +206,7 @@ class AsyncRepository(_BaseRepositoryMixin, Generic[T]):
 
         if self._has_soft_delete():
             query = query.where(self.model.deleted_at.is_(None))
-
+        query = self._apply_scopes(query)
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
 
@@ -268,7 +268,7 @@ class AsyncRepository(_BaseRepositoryMixin, Generic[T]):
 
         if limit:
             query = query.limit(limit)
-
+        query = self._apply_scopes(query)
         result = await self.session.execute(query)
         return result.scalars().all()
 
@@ -346,7 +346,7 @@ class AsyncRepository(_BaseRepositoryMixin, Generic[T]):
         # Apply limit
         if _limit:
             query = query.limit(_limit)
-
+        query = self._apply_scopes(query)
         result = await self.session.execute(query)
         return result.scalars().all()
 
@@ -453,7 +453,7 @@ class AsyncRepository(_BaseRepositoryMixin, Generic[T]):
 
         if _order_by:
             query = self._apply_ordering(query, _order_by)
-
+        query = self._apply_scopes(query)
         result = await self.session.execute(query)
         return result.scalars().all()
 
@@ -484,7 +484,7 @@ class AsyncRepository(_BaseRepositoryMixin, Generic[T]):
 
         if conditions:
             query = query.where(and_(*conditions))
-
+        query = self._apply_scopes(query)
         result = await self.session.execute(query)
         return result.scalar() or 0
 
