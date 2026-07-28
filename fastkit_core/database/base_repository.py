@@ -206,8 +206,8 @@ class _BaseRepositoryMixin:
                 all_items = repo.get_all()
 
             # Async context — without_scope is sync, works in both
-            async with repo.without_scope(AgencyScope):  # ← ne radi, vidi napomenu
-                ...
+            with repo.without_scope(AgencyScope):
+                all_items = await repo.get_all()
     ```
 
         Note:
