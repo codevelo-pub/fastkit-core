@@ -209,3 +209,55 @@ class TestRabbitMQBackendSerialization:
         envelope = json.loads(result)
         assert '2026' in envelope['payload']['ts']
 
+
+# ============================================================================
+# RabbitMQBackend — send
+# ============================================================================
+
+class TestRabbitMQBackendSend:
+
+    @pytest.mark.asyncio
+    async def test_send_publishes_to_exchange(self):
+        backend = _make_rabbitmq_backend()
+        result = await backend.send('user.created', {'id': 1})
+        assert result == []
+        backend._exchange.publish.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_send_uses_signal_name_as_routing_key(self):
+        backend = _make_rabbitmq_backend()
+        await backend.send('order.paid', {'amount': 50})
+        _, kwargs = backend._exchange.publish.call_args
+        assert kwargs.get('routing_key') == 'order.paid'
+
+    @pytest.mark.asyncio
+    async def test_send_raises_if_not_initialized(self):
+        backend = RabbitMQBackend(url='amqp://localhost/')
+        # _exchange is None — not initialized
+        with pytest.raises(RuntimeError, match='not initialized'):
+            await backend.send('evt', {})
+
+    @pytest.mark.asyncio
+    async def test_send_returns_exception_on_publish_failure(self):
+        backend = _make_rabbitmq_backend()
+        backend._exchange.publish.side_effect = ConnectionError("broker down")
+        result = await backend.send('evt', {})
+        assert len(result) == 1
+        assert isinstance(result[0], ConnectionError)
+
+    @pytest.mark.asyncio
+    async def test_send_does_not_raise_on_publish_failure(self):
+        """Publish errors are returned, never raised."""
+        backend = _make_rabbitmq_backend()
+        backend._exchange.publish.side_effect = RuntimeError("timeout")
+        # Must not raise
+        await backend.send('evt', {})
+
+    @pytest.mark.asyncio
+    async def test_send_message_is_persistent(self):
+        """Messages must use PERSISTENT delivery mode to survive broker restart."""
+        import aio_pika
+        backend = _make_rabbitmq_backend()
+        await backend.send('evt', {'x': 1})
+        message = backend._exchange.publish.call_args[0][0]
+        assert message.delivery_mode == aio_pika.DeliveryMode.PERSISTENT
