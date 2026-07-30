@@ -20,7 +20,10 @@ class Signal:
 
     def __init__(self, name: str):
         self.name = name
-        self._backend = self._get_backend()
+
+    @property
+    def _backend(self) -> BaseSignalBackend:
+        return self._get_backend()
 
     def connect(self, receiver: Callable) -> Callable:
         self._backend.connect(self.name, receiver)

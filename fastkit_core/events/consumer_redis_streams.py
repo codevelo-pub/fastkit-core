@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, AsyncGenerator, Any
 import logging
+import json
 
 from fastkit_core.events.consumer import BaseConsumer
 
@@ -113,7 +114,6 @@ class RedisStreamsConsumer(BaseConsumer):
     async def _ack(self, message: Any) -> None:
         """XACK — tell Redis this message was successfully processed."""
         stream_key, message_id, fields = message
-        signal_name = fields.get(b'signal', b'unknown').decode()
 
         await self._backend._redis.xack(
             stream_key,
@@ -144,7 +144,7 @@ class RedisStreamsConsumer(BaseConsumer):
                 # Max retries reached — move to DLQ and ACK to remove from pending
                 signal_name = fields.get(b'signal', b'unknown').decode()
                 payload_raw = fields.get(b'payload', b'{}')
-                payload = __import__('json').loads(payload_raw)
+                payload = json.loads(payload_raw)
 
                 await self._backend._move_to_dlq(signal_name, payload, message_id)
                 await self._backend._redis.xack(
