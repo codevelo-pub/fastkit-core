@@ -1,5 +1,9 @@
 from abc import ABC, abstractmethod
 from typing import Any, Callable
+import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class BaseSignalBackend(ABC):
@@ -26,3 +30,27 @@ class BaseSignalBackend(ABC):
     def receivers(self, signal_name: str) -> list[Callable]:
         """Return all receivers connected to this signal."""
         pass
+
+    async def _dispatch(self, signal_name: str, payload: Any) -> list[Exception]:
+        """
+        Dispatch payload to all local receivers for signal_name.
+
+        Exceptions from individual receivers are caught, logged, and collected.
+        All receivers always run — one failure does not prevent others.
+        """
+        errors = []
+        for receiver in self.receivers(signal_name):
+            try:
+                if asyncio.iscoroutinefunction(receiver):
+                    await receiver(payload)
+                else:
+                    receiver(payload)
+            except Exception as e:
+                logger.error(
+                    "Receiver '%s' for signal '%s' raised: %s",
+                    getattr(receiver, '__name__', repr(receiver)),
+                    signal_name, e,
+                    exc_info=True,
+                )
+                errors.append(e)
+        return errors
