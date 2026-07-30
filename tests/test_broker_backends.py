@@ -117,3 +117,56 @@ class TestSetupSignalBackend:
 
         await s.send({'key': 'value'})
         assert received == [{'key': 'value'}]
+
+
+# ============================================================================
+# RabbitMQBackend — receiver management
+# ============================================================================
+
+class TestRabbitMQBackendReceivers:
+    """connect / disconnect / receivers mirror InProcessBackend behavior."""
+
+    def test_connect_registers_receiver(self):
+        backend = _make_rabbitmq_backend()
+
+        async def handler(p): pass
+
+        backend.connect('user.created', handler)
+        assert handler in backend.receivers('user.created')
+
+    def test_connect_does_not_add_duplicates(self):
+        backend = _make_rabbitmq_backend()
+
+        async def handler(p): pass
+
+        backend.connect('evt', handler)
+        backend.connect('evt', handler)
+        assert backend.receivers('evt').count(handler) == 1
+
+    def test_disconnect_removes_receiver(self):
+        backend = _make_rabbitmq_backend()
+
+        async def handler(p): pass
+
+        backend.connect('evt', handler)
+        backend.disconnect('evt', handler)
+        assert handler not in backend.receivers('evt')
+
+    def test_disconnect_nonexistent_does_not_raise(self):
+        backend = _make_rabbitmq_backend()
+
+        async def handler(p): pass
+
+        backend.disconnect('evt', handler)
+
+    def test_receivers_returns_empty_for_unknown_signal(self):
+        backend = _make_rabbitmq_backend()
+        assert backend.receivers('nonexistent') == []
+
+    def test_receivers_different_signals_are_independent(self):
+        backend = _make_rabbitmq_backend()
+
+        async def h(p): pass
+
+        backend.connect('a', h)
+        assert h not in backend.receivers('b')
