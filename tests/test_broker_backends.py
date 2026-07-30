@@ -261,3 +261,134 @@ class TestRabbitMQBackendSend:
         await backend.send('evt', {'x': 1})
         message = backend._exchange.publish.call_args[0][0]
         assert message.delivery_mode == aio_pika.DeliveryMode.PERSISTENT
+
+
+# ============================================================================
+# RabbitMQBackend — consumer factory
+# ============================================================================
+
+class TestRabbitMQBackendConsumerFactory:
+
+    def test_consumer_returns_rabbitmq_consumer_instance(self):
+        backend = _make_rabbitmq_backend()
+        consumer = backend.consumer()
+        assert isinstance(consumer, RabbitMQConsumer)
+
+    def test_consumer_default_queue_name(self):
+        backend = RabbitMQBackend(url='amqp://localhost/', queue_prefix='myapp')
+        backend._exchange = AsyncMock()
+        backend._channel = AsyncMock()
+        consumer = backend.consumer()
+        assert consumer._queue_name == 'myapp.consumer'
+
+    def test_consumer_custom_queue_name(self):
+        backend = _make_rabbitmq_backend()
+        consumer = backend.consumer(queue_name='my.custom.queue')
+        assert consumer._queue_name == 'my.custom.queue'
+
+    def test_consumer_is_bound_to_backend(self):
+        backend = _make_rabbitmq_backend()
+        consumer = backend.consumer()
+        assert consumer._backend is backend
+
+
+# ============================================================================
+# RabbitMQConsumer
+# ============================================================================
+
+class TestRabbitMQConsumer:
+
+    @pytest.mark.asyncio
+    async def test_connect_declares_queue_with_dlq_arguments(self):
+        backend = _make_rabbitmq_backend()
+        consumer = RabbitMQConsumer(backend, queue_name='test.queue')
+        await consumer._connect()
+
+        backend._channel.declare_queue.assert_called_once_with(
+            'test.queue',
+            durable=True,
+            arguments={'x-dead-letter-exchange': 'fastkit.dlq'},
+        )
+
+    @pytest.mark.asyncio
+    async def test_connect_binds_queue_to_exchange(self):
+        backend = _make_rabbitmq_backend()
+        mock_queue = AsyncMock()
+        backend._channel.declare_queue.return_value = mock_queue
+        consumer = RabbitMQConsumer(backend, queue_name='test.queue')
+        await consumer._connect()
+        mock_queue.bind.assert_called_once_with(backend._exchange, routing_key='#')
+
+    @pytest.mark.asyncio
+    async def test_connect_raises_if_channel_is_none(self):
+        backend = RabbitMQBackend(url='amqp://localhost/')
+        consumer = RabbitMQConsumer(backend, queue_name='test.queue')
+        with pytest.raises(RuntimeError, match='not initialized'):
+            await consumer._connect()
+
+    @pytest.mark.asyncio
+    async def test_ack_calls_message_ack(self):
+        backend = _make_rabbitmq_backend()
+        consumer = RabbitMQConsumer(backend, queue_name='test.queue')
+        mock_message = AsyncMock()
+        await consumer._ack(mock_message)
+        mock_message.ack.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_nack_calls_message_nack_with_requeue_false(self):
+        backend = _make_rabbitmq_backend()
+        consumer = RabbitMQConsumer(backend, queue_name='test.queue')
+        mock_message = AsyncMock()
+        await consumer._nack(mock_message)
+        mock_message.nack.assert_called_once_with(requeue=False)
+
+    @pytest.mark.asyncio
+    async def test_handle_dispatches_and_acks_on_success(self):
+        backend = _make_rabbitmq_backend()
+        received = []
+
+        async def handler(payload): received.append(payload)
+
+        backend.connect('user.created', handler)
+
+        consumer = RabbitMQConsumer(backend, queue_name='test.queue')
+        body = backend._serialize_message('user.created', {'id': 1})
+        mock_message = AsyncMock()
+        mock_message.body = body
+
+        await consumer._handle(mock_message)
+
+        assert received == [{'id': 1}]
+        mock_message.ack.assert_called_once()
+        mock_message.nack.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_handle_nacks_on_deserialize_error(self):
+        backend = _make_rabbitmq_backend()
+        consumer = RabbitMQConsumer(backend, queue_name='test.queue')
+
+        mock_message = AsyncMock()
+        mock_message.body = b'not valid json {'
+
+        await consumer._handle(mock_message)
+
+        mock_message.nack.assert_called_once_with(requeue=False)
+        mock_message.ack.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_handle_nacks_when_receiver_fails(self):
+        backend = _make_rabbitmq_backend()
+
+        async def bad_handler(payload): raise ValueError("fail")
+
+        backend.connect('evt', bad_handler)
+
+        consumer = RabbitMQConsumer(backend, queue_name='test.queue')
+        body = backend._serialize_message('evt', {'x': 1})
+        mock_message = AsyncMock()
+        mock_message.body = body
+
+        await consumer._handle(mock_message)
+
+        mock_message.nack.assert_called_once_with(requeue=False)
+        mock_message.ack.assert_not_called()
