@@ -134,6 +134,11 @@ redis = [
     "redis>=5.0.0,<6.0.0",
 ]
 
+# Events
+rabbitmq = [
+    "aio-pika>=9.0"
+]
+
 # ============================================================================
 # Convenience groups for all sync/async drivers
 # ============================================================================
@@ -146,6 +151,7 @@ all-sync = [
     "cx-Oracle>=8.3.0",
     "cryptography>=44.0.0",
     "redis>=5.0.0,<6.0.0",
+    "aio-pika>=9.0",
 ]
 
 # All asynchronous database drivers
@@ -156,6 +162,7 @@ all-async = [
     "oracledb>=2.5.0",
     "cryptography>=44.0.0",
     "redis>=5.0.0,<6.0.0",
+    "aio-pika>=9.0",
 ]
 
 # All database drivers (sync + async)
@@ -174,6 +181,8 @@ all-drivers = [
     "cryptography>=44.0.0",
     # Caching
     "redis>=5.0.0,<6.0.0",
+    # Events
+    "aio-pika>=9.0",
 ]
 
 docs = [
