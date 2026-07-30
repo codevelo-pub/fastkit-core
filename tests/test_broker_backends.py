@@ -55,3 +55,65 @@ def _make_redis_backend() -> tuple[RedisStreamsBackend, MagicMock]:
     redis = AsyncMock()
     backend = RedisStreamsBackend(redis=redis)
     return backend, redis
+
+
+# ============================================================================
+# setup_signal_backend
+# ============================================================================
+
+class TestSetupSignalBackend:
+    """setup_signal_backend swaps the global backend for all Signal instances."""
+
+    def test_setup_replaces_default_inprocess_backend(self):
+        """After setup, Signal._backend must be the configured backend."""
+        custom = InProcessBackend()
+        setup_signal_backend(custom)
+        s = Signal('evt')
+        assert s._backend is custom
+
+    def test_signal_created_before_setup_uses_new_backend(self):
+        """
+        Signal created before setup must pick up the new backend
+        because _backend is a property that always reads the global.
+        """
+        s = Signal('evt')
+        custom = InProcessBackend()
+        setup_signal_backend(custom)
+        assert s._backend is custom
+
+    def test_setup_with_rabbitmq_backend(self):
+        backend = _make_rabbitmq_backend()
+        setup_signal_backend(backend)
+        s = Signal('evt')
+        assert isinstance(s._backend, RabbitMQBackend)
+
+    def test_setup_with_redis_streams_backend(self):
+        backend, _ = _make_redis_backend()
+        setup_signal_backend(backend)
+        s = Signal('evt')
+        assert isinstance(s._backend, RedisStreamsBackend)
+
+    def test_setup_called_twice_uses_last_backend(self):
+        """Last call to setup_signal_backend wins."""
+        first = InProcessBackend()
+        second = InProcessBackend()
+        setup_signal_backend(first)
+        setup_signal_backend(second)
+        s = Signal('evt')
+        assert s._backend is second
+
+    @pytest.mark.asyncio
+    async def test_signal_send_uses_configured_backend(self):
+        """Signal.send() must dispatch through the configured backend."""
+        custom = InProcessBackend()
+        setup_signal_backend(custom)
+
+        s = Signal('evt')
+        received = []
+
+        @s.connect
+        async def handler(payload, **kwargs):
+            received.append(payload)
+
+        await s.send({'key': 'value'})
+        assert received == [{'key': 'value'}]
