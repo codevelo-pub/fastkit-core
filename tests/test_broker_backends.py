@@ -170,3 +170,42 @@ class TestRabbitMQBackendReceivers:
 
         backend.connect('a', h)
         assert h not in backend.receivers('b')
+
+
+# ============================================================================
+# RabbitMQBackend — serialization
+# ============================================================================
+
+class TestRabbitMQBackendSerialization:
+
+    def test_serialize_message_returns_bytes(self):
+        backend = _make_rabbitmq_backend()
+        result = backend._serialize_message('user.created', {'id': 1})
+        assert isinstance(result, bytes)
+
+    def test_serialize_message_envelope_structure(self):
+        backend = _make_rabbitmq_backend()
+        result = backend._serialize_message('user.created', {'id': 1})
+        envelope = json.loads(result)
+        assert envelope['signal'] == 'user.created'
+        assert envelope['payload'] == {'id': 1}
+
+    def test_deserialize_message_roundtrip(self):
+        backend = _make_rabbitmq_backend()
+        body = backend._serialize_message('order.paid', {'amount': 99})
+        # Simulate aio_pika.IncomingMessage
+        raw = MagicMock()
+        raw.body = body
+        signal_name, payload = backend._deserialize_message(raw)
+        assert signal_name == 'order.paid'
+        assert payload == {'amount': 99}
+
+    def test_serialize_non_serializable_uses_default_str(self):
+        """Non-JSON-serializable values fall back to str() via default=str."""
+        from datetime import datetime
+        backend = _make_rabbitmq_backend()
+        dt = datetime(2026, 1, 1)
+        result = backend._serialize_message('evt', {'ts': dt})
+        envelope = json.loads(result)
+        assert '2026' in envelope['payload']['ts']
+
