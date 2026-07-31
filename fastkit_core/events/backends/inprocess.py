@@ -13,7 +13,7 @@ class InProcessBackend(BaseSignalBackend):
         self._receivers: dict[str, list[Callable]] = defaultdict(list)
 
     async def send(self, signal_name: str, payload: Any, **kwargs) -> list[Exception]:
-        return await self._dispatch(signal_name, payload)
+        return await self._dispatch(signal_name, payload, **kwargs)
 
     def connect(self, signal_name: str, receiver: Callable) -> None:
         if receiver not in self._receivers[signal_name]:

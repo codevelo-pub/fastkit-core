@@ -31,7 +31,7 @@ class BaseSignalBackend(ABC):
         """Return all receivers connected to this signal."""
         pass
 
-    async def _dispatch(self, signal_name: str, payload: Any) -> list[Exception]:
+    async def _dispatch(self, signal_name: str, payload: Any, **kwargs,) -> list[Exception]:
         """
         Dispatch payload to all local receivers for signal_name.
 
@@ -42,9 +42,9 @@ class BaseSignalBackend(ABC):
         for receiver in self.receivers(signal_name):
             try:
                 if asyncio.iscoroutinefunction(receiver):
-                    await receiver(payload)
+                    await receiver(payload, **kwargs)
                 else:
-                    receiver(payload)
+                    receiver(payload, **kwargs)
             except Exception as e:
                 logger.error(
                     "Receiver '%s' for signal '%s' raised: %s",
