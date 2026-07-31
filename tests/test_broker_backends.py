@@ -586,3 +586,208 @@ class TestRedisStreamsBackendConsumerFactory:
         backend, _ = _make_redis_backend()
         consumer = backend.consumer()
         assert consumer._backend is backend
+
+
+# ============================================================================
+# RedisStreamsConsumer — _ack and _nack
+# ============================================================================
+
+class TestRedisStreamsConsumerAckNack:
+
+    @pytest.mark.asyncio
+    async def test_ack_calls_xack(self):
+        backend, redis = _make_redis_backend()
+        consumer = RedisStreamsConsumer(backend, consumer_name='worker-1')
+
+        message = ('fastkit:signals:evt', '1699-0', {b'signal': b'evt', b'payload': b'{}'})
+        await consumer._ack(message)
+
+        redis.xack.assert_called_once_with(
+            'fastkit:signals:evt',
+            backend._consumer_group,
+            '1699-0',
+        )
+
+    @pytest.mark.asyncio
+    async def test_nack_below_max_retries_leaves_in_pending(self):
+        """Below max_retries — no xack, no DLQ move."""
+        backend, redis = _make_redis_backend()
+        backend._max_retries = 3
+
+        redis.xpending_range.return_value = [{'times_delivered': 1}]
+
+        consumer = RedisStreamsConsumer(backend, consumer_name='worker-1')
+        message = ('fastkit:signals:evt', '1699-0', {b'signal': b'evt', b'payload': b'{}'})
+        await consumer._nack(message)
+
+        redis.xack.assert_not_called()
+        redis.xadd.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_nack_at_max_retries_moves_to_dlq(self):
+        """At max_retries — message moved to DLQ and ACKed."""
+        backend, redis = _make_redis_backend()
+        backend._max_retries = 3
+
+        redis.xpending_range.return_value = [{'times_delivered': 3}]
+
+        consumer = RedisStreamsConsumer(backend, consumer_name='worker-1')
+        message = (
+            'fastkit:signals:user.created',
+            '1699-0',
+            {b'signal': b'user.created', b'payload': b'{"id": 1}'},
+        )
+        await consumer._nack(message)
+
+        # DLQ xadd called
+        redis.xadd.assert_called_once()
+        dlq_stream = redis.xadd.call_args[0][0]
+        assert dlq_stream == 'fastkit:dlq'
+
+        # ACK called to remove from pending
+        redis.xack.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_nack_handles_empty_pending_list(self):
+        """If XPENDING returns empty — treat as first attempt, don't move to DLQ."""
+        backend, redis = _make_redis_backend()
+        backend._max_retries = 3
+
+        redis.xpending_range.return_value = []  # no pending info
+
+        consumer = RedisStreamsConsumer(backend, consumer_name='worker-1')
+        message = ('fastkit:signals:evt', '1699-0', {b'signal': b'evt', b'payload': b'{}'})
+        await consumer._nack(message)
+
+        redis.xack.assert_not_called()
+        redis.xadd.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_nack_does_not_raise_on_xpending_error(self):
+        """Error in XPENDING must be caught and logged, not propagated."""
+        backend, redis = _make_redis_backend()
+        redis.xpending_range.side_effect = ConnectionError("redis down")
+
+        consumer = RedisStreamsConsumer(backend, consumer_name='worker-1')
+        message = ('fastkit:signals:evt', '1699-0', {b'signal': b'evt', b'payload': b'{}'})
+        await consumer._nack(message)  # must not raise
+
+
+# ============================================================================
+# RedisStreamsConsumer — _handle override
+# ============================================================================
+
+class TestRedisStreamsConsumerHandle:
+
+    @pytest.mark.asyncio
+    async def test_handle_dispatches_and_acks_on_success(self):
+        backend, redis = _make_redis_backend()
+        received = []
+
+        async def handler(payload): received.append(payload)
+
+        backend.connect('user.created', handler)
+
+        consumer = RedisStreamsConsumer(backend, consumer_name='worker-1')
+        payload_json = json.dumps({'id': 1}).encode()
+        message = (
+            'fastkit:signals:user.created',
+            '1699-0',
+            {b'signal': b'user.created', b'payload': payload_json},
+        )
+        await consumer._handle(message)
+
+        assert received == [{'id': 1}]
+        redis.xack.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_handle_nacks_on_deserialize_error(self):
+        backend, redis = _make_redis_backend()
+        redis.xpending_range.return_value = [{'times_delivered': 1}]
+
+        consumer = RedisStreamsConsumer(backend, consumer_name='worker-1')
+        message = (
+            'fastkit:signals:evt',
+            '1699-0',
+            {b'signal': b'evt', b'payload': b'not valid json {'},
+        )
+        await consumer._handle(message)
+
+        # xack not called (nack without ack for retry)
+        redis.xack.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_handle_nacks_when_receiver_fails(self):
+        backend, redis = _make_redis_backend()
+        redis.xpending_range.return_value = [{'times_delivered': 1}]
+
+        async def bad(payload): raise ValueError("fail")
+
+        backend.connect('evt', bad)
+
+        consumer = RedisStreamsConsumer(backend, consumer_name='worker-1')
+        payload_json = json.dumps({}).encode()
+        message = (
+            'fastkit:signals:evt',
+            '1699-0',
+            {b'signal': b'evt', b'payload': payload_json},
+        )
+        await consumer._handle(message)
+
+        # nack called — no xack on pending list
+        redis.xack.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_handle_does_not_ack_if_no_receivers(self):
+        """Signal with no receivers — dispatch returns [] so ACK is called."""
+        backend, redis = _make_redis_backend()
+        consumer = RedisStreamsConsumer(backend, consumer_name='worker-1')
+
+        payload_json = json.dumps({'x': 1}).encode()
+        message = (
+            'fastkit:signals:unknown',
+            '1699-0',
+            {b'signal': b'unknown', b'payload': payload_json},
+        )
+        await consumer._handle(message)
+
+        # No receivers — dispatch returns [] — ACK is called
+        redis.xack.assert_called_once()
+
+
+# ============================================================================
+# BaseConsumer — abstract interface
+# ============================================================================
+
+class TestBaseConsumer:
+    """BaseConsumer cannot be instantiated without implementing abstract methods."""
+
+    def test_cannot_instantiate_directly(self):
+        with pytest.raises(TypeError):
+            BaseConsumer(backend=None)
+
+    def test_concrete_subclass_must_implement_all_methods(self):
+        class Incomplete(BaseConsumer):
+            async def _connect(self): pass
+
+            async def _messages(self): yield
+
+            async def _ack(self, m): pass
+            # _nack intentionally missing
+
+        with pytest.raises(TypeError):
+            Incomplete(backend=None)
+
+    def test_full_subclass_can_be_instantiated(self):
+        class Full(BaseConsumer):
+            async def _connect(self): pass
+
+            async def _messages(self): yield
+
+            async def _ack(self, m): pass
+
+            async def _nack(self, m): pass
+
+        backend = MagicMock()
+        consumer = Full(backend=backend)
+        assert consumer._backend is backend
