@@ -529,4 +529,60 @@ class TestRedisStreamsBackendSend:
     async def test_send_does_not_raise_on_xadd_failure(self):
         backend, redis = _make_redis_backend()
         redis.xadd.side_effect = RuntimeError("timeout")
-        await backend.send('evt', {})  #
+        await backend.send('evt', {})
+
+
+# ============================================================================
+# RedisStreamsBackend — _move_to_dlq
+# ============================================================================
+
+class TestRedisStreamsBackendDLQ:
+
+    @pytest.mark.asyncio
+    async def test_move_to_dlq_calls_xadd_on_dlq_stream(self):
+        backend, redis = _make_redis_backend()
+        await backend._move_to_dlq('user.created', {'id': 1}, '1699000001-0')
+        redis.xadd.assert_called_once()
+        stream_key = redis.xadd.call_args[0][0]
+        assert stream_key == 'fastkit:dlq'
+
+    @pytest.mark.asyncio
+    async def test_move_to_dlq_includes_original_id(self):
+        backend, redis = _make_redis_backend()
+        await backend._move_to_dlq('evt', {}, '1699000001-0')
+        fields = redis.xadd.call_args[0][1]
+        assert fields['original_id'] == '1699000001-0'
+
+    @pytest.mark.asyncio
+    async def test_move_to_dlq_includes_signal_name(self):
+        backend, redis = _make_redis_backend()
+        await backend._move_to_dlq('order.failed', {'id': 5}, 'msg-id')
+        fields = redis.xadd.call_args[0][1]
+        assert fields['signal'] == 'order.failed'
+
+
+# ============================================================================
+# RedisStreamsBackend — consumer factory
+# ============================================================================
+
+class TestRedisStreamsBackendConsumerFactory:
+
+    def test_consumer_returns_redis_streams_consumer(self):
+        backend, _ = _make_redis_backend()
+        consumer = backend.consumer()
+        assert isinstance(consumer, RedisStreamsConsumer)
+
+    def test_consumer_default_name(self):
+        backend, _ = _make_redis_backend()
+        consumer = backend.consumer()
+        assert consumer._consumer_name == 'worker-1'
+
+    def test_consumer_custom_name(self):
+        backend, _ = _make_redis_backend()
+        consumer = backend.consumer(consumer_name='worker-3')
+        assert consumer._consumer_name == 'worker-3'
+
+    def test_consumer_is_bound_to_backend(self):
+        backend, _ = _make_redis_backend()
+        consumer = backend.consumer()
+        assert consumer._backend is backend
