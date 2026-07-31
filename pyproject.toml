@@ -73,6 +73,7 @@ dev = [
     "black>=24.10.0",
     "isort>=5.13.0",
     "mypy>=1.13.0",
+    "aio-pika>=9.0",
 ]
 
 # ============================================================================
@@ -134,6 +135,11 @@ redis = [
     "redis>=5.0.0,<6.0.0",
 ]
 
+# Events
+rabbitmq = [
+    "aio-pika>=9.0",
+]
+
 # ============================================================================
 # Convenience groups for all sync/async drivers
 # ============================================================================
@@ -146,6 +152,7 @@ all-sync = [
     "cx-Oracle>=8.3.0",
     "cryptography>=44.0.0",
     "redis>=5.0.0,<6.0.0",
+    "aio-pika>=9.0",
 ]
 
 # All asynchronous database drivers
@@ -156,6 +163,7 @@ all-async = [
     "oracledb>=2.5.0",
     "cryptography>=44.0.0",
     "redis>=5.0.0,<6.0.0",
+    "aio-pika>=9.0",
 ]
 
 # All database drivers (sync + async)
@@ -174,6 +182,8 @@ all-drivers = [
     "cryptography>=44.0.0",
     # Caching
     "redis>=5.0.0,<6.0.0",
+    # Events
+    "aio-pika>=9.0",
 ]
 
 docs = [
@@ -193,6 +203,7 @@ ci = [
     "aiosqlite>=0.20.0",
     "asyncpg>=0.30.0",
     "redis>=5.0.0,<6.0.0",
+    "aio-pika>=9.0",
 ]
 
 [project.urls]
