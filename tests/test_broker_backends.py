@@ -392,3 +392,47 @@ class TestRabbitMQConsumer:
 
         mock_message.nack.assert_called_once_with(requeue=False)
         mock_message.ack.assert_not_called()
+
+# ============================================================================
+# RedisStreamsBackend — receiver management
+# ============================================================================
+
+class TestRedisStreamsBackendReceivers:
+
+    def test_connect_registers_receiver(self):
+        backend, _ = _make_redis_backend()
+
+        async def handler(p): pass
+
+        backend.connect('user.created', handler)
+        assert handler in backend.receivers('user.created')
+
+    def test_connect_does_not_add_duplicates(self):
+        backend, _ = _make_redis_backend()
+
+        async def handler(p): pass
+
+        backend.connect('evt', handler)
+        backend.connect('evt', handler)
+        assert backend.receivers('evt').count(handler) == 1
+
+    def test_disconnect_removes_receiver(self):
+        backend, _ = _make_redis_backend()
+
+        async def handler(p): pass
+
+        backend.connect('evt', handler)
+        backend.disconnect('evt', handler)
+        assert handler not in backend.receivers('evt')
+
+    def test_disconnect_nonexistent_does_not_raise(self):
+        backend, _ = _make_redis_backend()
+
+        async def handler(p): pass
+
+        backend.disconnect('evt', handler)
+
+    def test_receivers_returns_empty_for_unknown_signal(self):
+        backend, _ = _make_redis_backend()
+        assert backend.receivers('nonexistent') == []
+
