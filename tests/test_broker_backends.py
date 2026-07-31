@@ -436,3 +436,97 @@ class TestRedisStreamsBackendReceivers:
         backend, _ = _make_redis_backend()
         assert backend.receivers('nonexistent') == []
 
+
+# ============================================================================
+# RedisStreamsBackend — stream key and serialization
+# ============================================================================
+
+class TestRedisStreamsBackendSerialization:
+
+    def test_stream_key_format(self):
+        backend, _ = _make_redis_backend()
+        assert backend._stream_key('user.created') == 'fastkit:signals:user.created'
+
+    def test_stream_key_custom_prefix(self):
+        redis = AsyncMock()
+        backend = RedisStreamsBackend(redis=redis, stream_prefix='myapp:events')
+        assert backend._stream_key('order.paid') == 'myapp:events:order.paid'
+
+    def test_serialize_payload_returns_json_string(self):
+        backend, _ = _make_redis_backend()
+        result = backend._serialize_payload({'id': 1, 'name': 'Alice'})
+        assert isinstance(result, str)
+        assert json.loads(result) == {'id': 1, 'name': 'Alice'}
+
+    def test_deserialize_message_from_bytes(self):
+        backend, _ = _make_redis_backend()
+        raw = {
+            b'signal': b'user.created',
+            b'payload': b'{"id": 1}',
+        }
+        signal_name, payload = backend._deserialize_message(raw)
+        assert signal_name == 'user.created'
+        assert payload == {'id': 1}
+
+    def test_deserialize_message_roundtrip_via_send(self):
+        """_serialize_payload output must be deserializable by _deserialize_message."""
+        backend, _ = _make_redis_backend()
+        original_payload = {'id': 42, 'email': 'a@b.com'}
+        serialized = backend._serialize_payload(original_payload)
+        raw = {
+            b'signal': b'user.created',
+            b'payload': serialized.encode(),
+        }
+        signal_name, payload = backend._deserialize_message(raw)
+        assert payload == original_payload
+
+
+# ============================================================================
+# RedisStreamsBackend — send
+# ============================================================================
+
+class TestRedisStreamsBackendSend:
+
+    @pytest.mark.asyncio
+    async def test_send_calls_xadd(self):
+        backend, redis = _make_redis_backend()
+        result = await backend.send('user.created', {'id': 1})
+        assert result == []
+        redis.xadd.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_send_uses_correct_stream_key(self):
+        backend, redis = _make_redis_backend()
+        await backend.send('order.paid', {'amount': 50})
+        stream_key = redis.xadd.call_args[0][0]
+        assert stream_key == 'fastkit:signals:order.paid'
+
+    @pytest.mark.asyncio
+    async def test_send_includes_signal_and_payload_fields(self):
+        backend, redis = _make_redis_backend()
+        await backend.send('user.created', {'id': 1})
+        fields = redis.xadd.call_args[0][1]
+        assert 'signal' in fields
+        assert 'payload' in fields
+        assert fields['signal'] == 'user.created'
+        assert json.loads(fields['payload']) == {'id': 1}
+
+    @pytest.mark.asyncio
+    async def test_send_returns_empty_list_on_success(self):
+        backend, redis = _make_redis_backend()
+        result = await backend.send('evt', {'x': 1})
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_send_returns_exception_on_xadd_failure(self):
+        backend, redis = _make_redis_backend()
+        redis.xadd.side_effect = ConnectionError("redis down")
+        result = await backend.send('evt', {})
+        assert len(result) == 1
+        assert isinstance(result[0], ConnectionError)
+
+    @pytest.mark.asyncio
+    async def test_send_does_not_raise_on_xadd_failure(self):
+        backend, redis = _make_redis_backend()
+        redis.xadd.side_effect = RuntimeError("timeout")
+        await backend.send('evt', {})  #
