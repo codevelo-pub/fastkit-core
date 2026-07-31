@@ -20,7 +20,10 @@ class Signal:
 
     def __init__(self, name: str):
         self.name = name
-        self._backend = self._get_backend()
+
+    @property
+    def _backend(self) -> BaseSignalBackend:
+        return self._get_backend()
 
     def connect(self, receiver: Callable) -> Callable:
         self._backend.connect(self.name, receiver)
@@ -64,3 +67,22 @@ class Signal:
             UserWarning,
             stacklevel=3
         )
+
+def setup_signal_backend(backend: BaseSignalBackend) -> None:
+    """
+    Configure the global signal backend.
+
+    Call once at application startup, before any Signal instances are created
+    or any signals are sent.
+
+    Args:
+        backend: Any BaseSignalBackend implementation.
+
+    Example:
+        from fastkit_core.events import setup_signal_backend
+        from fastkit_core.events.backends.rabbitmq import RabbitMQBackend
+
+        setup_signal_backend(RabbitMQBackend(url='amqp://guest:guest@localhost/'))
+    """
+    global _backend_instance
+    _backend_instance = backend
